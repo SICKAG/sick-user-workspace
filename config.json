@@ -1,0 +1,5 @@
+{
+    "autoStart": true,
+    "name": "SICK User Workspace",
+    "description": "Base workspace container providing a development environment for SICK TDC devices. Includes workspace management tools and optional recommended tooling (Go, gRPC, Docker, git)."
+}

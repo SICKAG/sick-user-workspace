@@ -1,0 +1,69 @@
+ARG ARCH=arm64
+ARG BASE_IMAGE=ubuntu:24.04
+# Base image
+ARG BUILDER_BASE_IMAGE=${BASE_IMAGE}
+FROM ${BASE_IMAGE} AS base
+
+# Builder stage for additional packages
+FROM ${BUILDER_BASE_IMAGE} AS builder
+
+# Configure timezone non-interactively and download needed packages
+ENV TZ=UTC
+RUN ln -sf /usr/share/zoneinfo/UTC /etc/localtime && echo "UTC" > /etc/timezone \
+    && apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y tzdata nano \
+    && dpkg-reconfigure -f noninteractive tzdata
+
+# Final image
+FROM base
+
+# Workspace labels
+# com.sick.container.role MUST stay "sick-user-workspace" SSH relies on this label.
+ARG WORKSPACE_ID=sick-user-workspace
+ARG DISPLAY_NAME="SICK User Workspace"
+ARG IMAGE_VERSION=dev
+
+LABEL com.sick.container.role="sick-user-workspace" \
+      com.sick.workspace.schema="1" \
+      com.sick.workspace.id="${WORKSPACE_ID}" \
+      com.sick.workspace.display-name="${DISPLAY_NAME}" \
+      org.opencontainers.image.title="${DISPLAY_NAME}" \
+      org.opencontainers.image.version="${IMAGE_VERSION}" \
+      org.opencontainers.image.vendor="SICK AG"
+
+COPY files/welcome.sh /etc/profile.d/welcome.sh
+COPY files/install-recommended-tools.sh /opt/scripts/install-recommended-tools.sh
+COPY files/entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY files/ZscalerRootCertificate-2048-SHA256.crt /usr/local/share/ca-certificates/ZscalerRootCertificate-2048-SHA256.crt
+
+# Workspace management script
+COPY files/scripts/workspace                /usr/local/bin/workspace
+
+RUN mkdir -p /etc/ssl/certs && \
+    for cert in $(ls -d /usr/local/share/ca-certificates/*); do cat ${cert} >> /etc/ssl/certs/ca-certificates.crt; done && \
+    chmod +x /opt/scripts/install-recommended-tools.sh && \
+    chmod +x \
+        /usr/local/bin/entrypoint.sh \
+        /usr/local/bin/workspace && \
+    printf 'install-recommended-tools() { /opt/scripts/install-recommended-tools.sh "$@" && source /etc/profile; }\n' >> /etc/bash.bashrc && \
+    # Add 'operator' user to mirror the one that exists on host. We add it with UID and GID 0 to be equal to 'root' user \
+    useradd -u 0 -o -g 0 -m -d /home/operator -s /bin/bash operator && \
+    # Switch order of users so that 'operator' is first, 'root' second \
+    # Otherwise when you execute whoami you'd get first user that matches UID 0 and that is 'root' \
+    grep -v -E '^(root|operator):' /etc/passwd > /tmp/passwd.rest && \
+    grep '^operator:' /etc/passwd > /tmp/passwd.operator && \
+    grep '^root:' /etc/passwd > /tmp/passwd.root && \
+    cat /tmp/passwd.operator /tmp/passwd.root /tmp/passwd.rest > /etc/passwd.new && \
+    mv /etc/passwd.new /etc/passwd && \
+    rm /tmp/passwd.operator /tmp/passwd.root /tmp/passwd.rest
+
+# Copy binaries from builder stage
+COPY --from=builder /usr/bin/nano /usr/bin/nano
+COPY --from=builder /etc/localtime /etc/localtime
+COPY --from=builder /etc/timezone /etc/timezone
+
+USER operator
+WORKDIR /home/operator
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["/bin/bash"]

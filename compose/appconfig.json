@@ -1,0 +1,7 @@
+{
+    "containerRole": "sick-user-workspace",
+    "serviceName": "sick-user-workspace",
+    "displayName": "SICK User Workspace",
+    "image": "publicpull/sick-user-workspace:latest",
+    "imageFile": "images/sick-user-workspace-arm64.tar"
+}

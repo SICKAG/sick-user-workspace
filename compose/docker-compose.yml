@@ -1,0 +1,19 @@
+version: "3.8"
+services:
+  sick-user-workspace:
+    image: publicpull/sick-user-workspace:latest
+    restart: unless-stopped
+    container_name: sick-user-workspace
+    environment:
+      # Identity env, used by the 'workspace' command (current, set-default)
+      - SICK_WORKSPACE_ID=sick-user-workspace
+      - SICK_WORKSPACE_DISPLAY_NAME=SICK User Workspace
+    labels:
+      com.sick.container.role: "sick-user-workspace"
+      com.sick.workspace.schema: "1"
+      com.sick.workspace.id: "sick-user-workspace"
+      com.sick.workspace.display-name: "SICK User Workspace"
+    volumes:
+      # Workspace config directory
+      - /datafs/ssh/workspace:/workspace:rw
+      - /var/run/iolink/iolink-api.sock:/var/run/iolink/iolink-api.sock
