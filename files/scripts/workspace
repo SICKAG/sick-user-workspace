@@ -1,0 +1,194 @@
+#!/bin/bash
+# workspace
+#
+# Unified workspace management command. Provides every workspace control
+# operation through a single entry point: 'workspace <command>'.
+#
+# Run 'workspace help' at any time to list the available commands.
+
+CONFIG_DIR="/workspace"
+DEFAULT_FILE="${CONFIG_DIR}/default-user-workspace"
+AVAILABLE_LIST="${CONFIG_DIR}/available-workspaces"
+
+# Show the workspace the current session is running in.
+cmd_current() {
+    local id name
+    id="${SICK_WORKSPACE_ID:-}"
+    name="${SICK_WORKSPACE_DISPLAY_NAME:-}"
+
+    if [ -z "${id}" ]; then
+        echo "Error: SICK_WORKSPACE_ID is not set." >&2
+        echo "  Ensure the container was started with the workspace compose file." >&2
+        return 1
+    fi
+
+    echo "Current workspace:"
+    echo "  ID:           ${id}"
+    echo "  Display name: ${name:-${id}}"
+    echo "  Run 'workspace help' to list available commands."
+}
+
+# List all detected workspace containers.
+cmd_list() {
+    local current_id default_id="" i tags name display
+    current_id="${SICK_WORKSPACE_ID:-}"
+
+    if [ -s "${DEFAULT_FILE}" ]; then
+        default_id=$(tr -d '[:space:]' < "${DEFAULT_FILE}")
+    fi
+
+    echo ""
+    echo "  Available workspace containers:"
+
+    if [ ! -s "${AVAILABLE_LIST}" ]; then
+        echo "    (list not available — reconnect via SSH to refresh)"
+        echo ""
+        return 0
+    fi
+
+    i=1
+    while IFS=: read -r name display; do
+        tags=""
+        [[ "${name}" == "${current_id}" ]] && tags="${tags}  ← current"
+        [[ "${name}" == "${default_id}" ]] && tags="${tags}  [default]"
+        printf "    [%d] %-32s (%s)%s\n" "${i}" "${display:-${name}}" "${name}" "${tags}"
+        (( i++ ))
+    done < "${AVAILABLE_LIST}"
+
+    echo ""
+    if [ -n "${default_id}" ]; then
+        echo "  Default: ${default_id}"
+        echo "  Run 'workspace unset-default' to clear the default and re-enable the menu."
+    else
+        echo "  No default set — the selection menu appears on each interactive SSH login."
+        echo "  Run 'workspace set-default [id]' to persist a choice."
+    fi
+    echo "  Run 'workspace switch' to return to the selection menu now."
+    echo ""
+}
+
+# Show which workspace is currently set as the default.
+cmd_get_default() {
+    local name display_name
+    if [ ! -s "${DEFAULT_FILE}" ]; then
+        echo "No default workspace is set."
+        echo "  The selection menu appears on each interactive SSH login."
+        echo "  Run 'workspace set-default' to persist a choice."
+        return 0
+    fi
+
+    name=$(tr -d '[:space:]' < "${DEFAULT_FILE}")
+    display_name=$(grep "^${name}:" "${AVAILABLE_LIST}" 2>/dev/null | cut -d: -f2-)
+
+    if [ -n "${display_name}" ]; then
+        echo "Default workspace: ${display_name} (${name})"
+    else
+        echo "Default workspace: ${name}"
+    fi
+    echo "  Run 'workspace unset-default' to clear and re-enable the selection menu."
+}
+
+# Set a workspace as the default for the next SSH login.
+cmd_set_default() {
+    local target display_name
+    if [ ! -d "${CONFIG_DIR}" ]; then
+        echo "Error: workspace config directory not mounted." >&2
+        echo "  Expected: /workspace (bound from /datafs/ssh/workspace on the host)" >&2
+        return 1
+    fi
+
+    target="${1:-${SICK_WORKSPACE_ID}}"
+
+    if [ -z "${target}" ]; then
+        echo "Error: no workspace specified and SICK_WORKSPACE_ID is not set." >&2
+        echo "  Usage: workspace set-default [<workspace-id>]" >&2
+        echo "  Run 'workspace list' to see available options." >&2
+        return 1
+    fi
+
+    if [ -s "${AVAILABLE_LIST}" ] && ! grep -q "^${target}:" "${AVAILABLE_LIST}"; then
+        echo "Error: '${target}' is not in the list of known workspace containers." >&2
+        echo "  Run 'workspace list' to see available options." >&2
+        return 1
+    fi
+
+    echo "${target}" > "${DEFAULT_FILE}" || {
+        echo "Error: cannot write to ${DEFAULT_FILE}." >&2
+        return 1
+    }
+
+    display_name=$(grep "^${target}:" "${AVAILABLE_LIST}" 2>/dev/null | cut -d: -f2-)
+    echo "Default workspace set to: ${display_name:-${target}}"
+    echo "  This takes effect on your next SSH login."
+    echo "  Run 'workspace switch' to switch now."
+}
+
+# Clear the default workspace and re-enable the selection menu.
+cmd_unset_default() {
+    local current
+    if [ ! -f "${DEFAULT_FILE}" ]; then
+        echo "No default workspace is currently set."
+        echo "  The selection menu already appears on each interactive SSH login."
+        return 0
+    fi
+
+    current=$(tr -d '[:space:]' < "${DEFAULT_FILE}" 2>/dev/null)
+    rm -f "${DEFAULT_FILE}" || {
+        echo "Error: cannot remove ${DEFAULT_FILE}." >&2
+        return 1
+    }
+
+    echo "Default workspace cleared (was: ${current:-unknown})."
+    echo "  The selection menu will appear on your next interactive SSH login."
+}
+
+# Return to the workspace selection menu (clears default, then exits session).
+cmd_switch() {
+    if [ -f "${DEFAULT_FILE}" ]; then
+        rm -f "${DEFAULT_FILE}"
+    fi
+
+    echo ""
+    echo "  Returning to workspace selection..."
+    echo "  Reconnect via SSH to choose a workspace."
+    echo ""
+}
+
+# Print available workspace management commands with descriptions.
+cmd_help() {
+    echo ""
+    echo "  Workspace tools — usage: workspace <command>"
+    echo ""
+    echo "  workspace current             Show the workspace you are currently in"
+    echo "  workspace list                List all available workspace containers"
+    echo "  workspace get-default         Show which workspace is currently set as default"
+    echo "  workspace set-default [id]    Set default workspace (skip menu on next login)"
+    echo "  workspace unset-default       Clear default — selection menu reappears on login"
+    echo "  workspace switch              Return to workspace selection (exits this session)"
+    echo "  workspace help                Show this help"
+    echo ""
+    echo "  install-recommended-tools     Install optional development tools (Go, gRPC, Docker…)"
+    echo ""
+}
+
+main() {
+    local command="${1:-current}"
+    [ "$#" -gt 0 ] && shift
+
+    case "${command}" in
+        current)        cmd_current "$@" ;;
+        list)           cmd_list "$@" ;;
+        get-default)    cmd_get_default "$@" ;;
+        set-default)    cmd_set_default "$@" ;;
+        unset-default)  cmd_unset_default "$@" ;;
+        switch)         cmd_switch "$@" ;;
+        help|-h|--help) cmd_help "$@" ;;
+        *)
+            echo "Error: unknown command '${command}'." >&2
+            cmd_help >&2
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"

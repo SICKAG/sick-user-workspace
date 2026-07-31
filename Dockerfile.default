@@ -1,0 +1,34 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Default SICK User Workspace image.
+#
+# Builds FROM the lite base image and bakes in the curated default toolset via
+# the recommended-tools installer:
+#   git, docker cli, openssh-client (scp), btop, can-utils, iproute2, go, grpcurl
+#   (base also brings vim + python3-setuptools; nano is already in lite).
+#
+# Published as: publicpull/sick-user-workspace
+# ─────────────────────────────────────────────────────────────────────────────
+ARG LITE_IMAGE=publicpull/sick-user-workspace-lite:latest
+FROM ${LITE_IMAGE}
+
+# Docker labels
+ARG WORKSPACE_ID=sick-user-workspace
+ARG DISPLAY_NAME="SICK User Workspace"
+ARG IMAGE_VERSION=dev
+
+LABEL com.sick.container.role="sick-user-workspace"
+LABEL org.opencontainers.image.version="${IMAGE_VERSION}"
+LABEL com.sick.workspace.display-name="${DISPLAY_NAME}"
+LABEL com.sick.workspace.id="${WORKSPACE_ID}"
+
+# Install recomended tools (default option)
+USER root
+RUN /opt/scripts/install-recommended-tools.sh -t default \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+USER operator
+WORKDIR /home/operator
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["/bin/bash"]

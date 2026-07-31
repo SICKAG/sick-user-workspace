@@ -1,0 +1,39 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Tools SICK User Workspace image.
+#
+# Builds FROM the lite base image and bakes in the full recommended-tools set:
+#   base    (git, openssh-client, vim, python3-setuptools)
+#   docker  (docker-ce-cli + compose plugin)
+#   go      (latest)
+#   gotools (grpcurl, gopls, delve)
+#   netmon  (btop, can-utils, iproute2)
+#   build   (gcc, g++, make, cmake, ninja, gdb, ccache)
+#   python  (pip, venv, python3-dev, pipx)
+#   proto   (protoc + Go plugins)
+#
+# Published as: publicpull/sick-user-workspace-tools
+# ─────────────────────────────────────────────────────────────────────────────
+ARG LITE_IMAGE=publicpull/sick-user-workspace-lite:latest
+FROM ${LITE_IMAGE}
+
+# Docker labels
+ARG WORKSPACE_ID=sick-user-workspace-tools
+ARG DISPLAY_NAME="SICK User Workspace - Tools"
+ARG IMAGE_VERSION=dev
+
+LABEL com.sick.container.role="sick-user-workspace"
+LABEL org.opencontainers.image.version="${IMAGE_VERSION}"
+LABEL com.sick.workspace.display-name="${DISPLAY_NAME}"
+LABEL com.sick.workspace.id="${WORKSPACE_ID}"
+
+# Bake in the full recommended toolset (needs root for apt / installs)
+USER root
+RUN /opt/scripts/install-recommended-tools.sh -t base docker go gotools netmon build python proto \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+USER operator
+WORKDIR /home/operator
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["/bin/bash"]
